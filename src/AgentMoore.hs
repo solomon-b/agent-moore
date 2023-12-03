@@ -59,13 +59,47 @@ instance Profunctor (Moore s) where
   dimap :: (i' -> i) -> (o -> o') -> Moore s i o -> Moore s i' o'
   dimap f g (Moore moore) = Moore $ fmap (bimap g (lmap f)) moore
 
--- | Feed inputs into a 'Moore' Machine and then observe the result.
+--------------------------------------------------------------------------------
+-- Running Machines
+
+-- | Feed inputs into a 'Mealy' Machine and extract the observation at
+-- each state/input in a 'scan' style.
+scanMealy :: s -> [i] -> Mealy s i o -> [(o, s)]
+scanMealy initialState inputs machine =
+  case inputs of
+    [] -> []
+    input : xs ->
+      let (o, s) = runMealy machine initialState input
+       in (o, s) : scanMealy s xs machine
+
+-- | Feed inputs into a 'Moore' Machine and extract the observation at
+-- each state/input in a 'scan' style.
+scanMoore :: s -> [i] -> Moore s i o -> [(o, s)]
+scanMoore state' inputs machine =
+  let (o, transition) = runMoore machine state'
+   in case inputs of
+        [] -> [(o, state')]
+        i : xs -> (o, state') : scanMoore (transition i) xs machine
+
+-- | Feed inputs into a 'Mealy' Machine and then observe the final
+-- result.
+processMealy :: s -> [i] -> Mealy s i o -> o
+processMealy state' inputs machine =
+  case inputs of
+    [] -> undefined
+    [input] -> fst (runMealy machine state' input)
+    input : xs ->
+      let (_o, s) = runMealy machine state' input
+       in processMealy s xs machine
+
+-- | Feed inputs into a 'Moore' Machine and then observe the final
+-- result.
 processMoore :: s -> [i] -> Moore s i o -> o
 processMoore initialState inputs machine =
   let (o, transition) = runMoore machine initialState
-  in case inputs of
-    [] -> o
-    i : xs -> processMoore (transition i) xs machine
+   in case inputs of
+        [] -> o
+        i : xs -> processMoore (transition i) xs machine
 
 --------------------------------------------------------------------------------
 
@@ -152,10 +186,10 @@ equivalentMealy = Mealy $ curry \case
 -- | A 'Moore' Machine which can walk 'exampleDAG'.
 equivalentMoore :: Moore Node Edge (Maybe String)
 equivalentMoore = Moore $ \case
-  NA -> (Nothing, \case E1 -> NB; E2 -> NC; E3 -> ND; E4 -> NE)
-  NB -> (Nothing, \case E3 -> ND; _ -> NB)
-  NC -> (Nothing, \case E3 -> ND; E4 -> NE; _ -> NC)
-  ND -> (Nothing, \case E4 -> NE; _ -> ND)
+  NA -> (Just "NA", \case E1 -> NB; E2 -> NC; E3 -> ND; E4 -> NE)
+  NB -> (Just "NB", \case E3 -> ND; _ -> NB)
+  NC -> (Just "NC", \case E3 -> ND; E4 -> NE; _ -> NC)
+  ND -> (Just "ND", \case E4 -> NE; _ -> ND)
   NE -> (Just "Finished!", const NE)
 
 -- TODO:
