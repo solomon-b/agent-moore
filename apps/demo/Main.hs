@@ -7,4 +7,4 @@ import AgentMoore
 --------------------------------------------------------------------------------
 
 main :: IO ()
-main = putStrLn $ dagToDot exampleDAG
+main = print $ processMoore NA [E1, E3, E4] equivalentMoore

@@ -59,6 +59,14 @@ instance Profunctor (Moore s) where
   dimap :: (i' -> i) -> (o -> o') -> Moore s i o -> Moore s i' o'
   dimap f g (Moore moore) = Moore $ fmap (bimap g (lmap f)) moore
 
+-- | Feed inputs into a 'Moore' Machine and then observe the result.
+processMoore :: s -> [i] -> Moore s i o -> o
+processMoore initialState inputs machine =
+  let (o, transition) = runMoore machine initialState
+  in case inputs of
+    [] -> o
+    i : xs -> processMoore (transition i) xs machine
+
 --------------------------------------------------------------------------------
 
 data S = A | B | C
