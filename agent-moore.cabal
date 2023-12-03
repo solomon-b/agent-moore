@@ -1,0 +1,65 @@
+cabal-version:      2.4
+name:               agent-moore
+version:            0.1.0.0
+-- description:
+bug-reports:        https://github.com/solomon-b/co-prompt/agent-moore
+author:             Solomon Bothwell & Chessai
+maintainer:         ssbothwell@gmail.com
+category:           Machines, Dynamical Systems, LLMs, DAGs
+extra-source-files: README.md
+
+--------------------------------------------------------------------------------
+
+common common-config
+  build-depends:
+    base >= 4.12 && < 5,
+
+  ghc-options:
+    -Wall
+    -Wcpp-undef
+    -Widentities
+    -Wincomplete-record-updates
+    -Wincomplete-uni-patterns
+    -Wpartial-fields
+    -Werror=missing-home-modules
+    -Wno-star-is-type
+
+  default-language:
+    Haskell2010
+
+  default-extensions:
+    DeriveFunctor
+    DerivingStrategies
+    ImportQualifiedPost
+    LambdaCase
+
+--------------------------------------------------------------------------------
+
+library
+  import:
+    common-config
+    
+  exposed-modules:
+    AgentMoore
+
+  build-depends:
+    containers,
+    profunctors,
+    mtl,
+    text
+
+  hs-source-dirs: src
+ 
+--------------------------------------------------------------------------------
+
+executable demo
+  import:
+    common-config
+
+  main-is:
+    Main.hs
+
+  build-depends:
+    agent-moore,
+
+  hs-source-dirs:   apps/demo
