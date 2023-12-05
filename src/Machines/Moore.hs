@@ -4,6 +4,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- | Moore Machines and related machinery.
 module Machines.Moore
@@ -12,6 +13,7 @@ module Machines.Moore
     fixMoore,
     scanMoore,
     processMoore,
+    processMoore',
     (/\),
     (/+\),
     (\/),
@@ -25,10 +27,12 @@ import Control.Category.Cartesian (split)
 import Data.Bifunctor (bimap)
 import Data.Bifunctor.Monoidal qualified as Bifunctor
 import Data.Either (fromLeft, fromRight)
-import Data.Profunctor (Profunctor (..))
+import Data.Profunctor (Closed (..), Costrong (..), Profunctor (..))
+import Data.Profunctor.Rep (Corepresentable (..), unfirstCorep)
+import Data.Profunctor.Sieve (Cosieve (..))
 import Data.These (These (..), these)
 import Data.Trifunctor.Monoidal qualified as Trifunctor
-import Data.Void
+import Data.Void (Void, absurd)
 
 --------------------------------------------------------------------------------
 
@@ -46,10 +50,6 @@ import Data.Void
 -- next state transition function.
 newtype Moore s i o = Moore {runMoore :: s -> (o, i -> s)}
   deriving (Functor)
-
-instance Profunctor (Moore s) where
-  dimap :: (i' -> i) -> (o -> o') -> Moore s i o -> Moore s i' o'
-  dimap f g (Moore moore) = Moore $ fmap (bimap g (lmap f)) moore
 
 instance Trifunctor.Semigroupal (->) (,) (,) (,) (,) Moore where
   combine :: (Moore s i o, Moore t i' o') -> Moore (s, t) (i, i') (o, o')
@@ -88,6 +88,10 @@ instance Trifunctor.Monoidal (->) (,) () (,) () (,) () (,) () Moore
 instance Trifunctor.Monoidal (->) (,) () Either Void (,) () (,) () Moore
 
 instance Trifunctor.Monoidal (->) (,) () These Void (,) () (,) () Moore
+
+instance Profunctor (Moore s) where
+  dimap :: (i' -> i) -> (o -> o') -> Moore s i o -> Moore s i' o'
+  dimap f g (Moore moore) = Moore $ fmap (bimap g (lmap f)) moore
 
 --------------------------------------------------------------------------------
 
@@ -149,6 +153,25 @@ instance Profunctor Moore' where
   dimap f g (Moore' serve) =
     Moore' $ bimap g (dimap f (dimap f g)) serve
 
+instance Costrong Moore' where
+  unfirst :: Moore' (i, d) (o, d) -> Moore' i o
+  unfirst = unfirstCorep
+
+instance Cosieve Moore' [] where
+  cosieve :: Moore' i o -> [i] -> o
+  cosieve (Moore' (o, _)) [] = o
+  cosieve (Moore' (_, k)) (x : xs) = cosieve (k x) xs
+
+instance Corepresentable Moore' where
+  type Corep Moore' = []
+
+  cotabulate :: (Corep Moore' i -> o) -> Moore' i o
+  cotabulate f = Moore' (f [], \i -> cotabulate (f . (i :)))
+
+instance Closed Moore' where
+  closed :: Moore' i o -> Moore' (x -> i) (x -> o)
+  closed m = cotabulate $ \fs x -> cosieve m (fmap ($ x) fs)
+
 -- | Take the fixpoint of @Moore s i o@ by recursively constructing an
 -- @s -> Moore' i o@ action and tupling it with the output observation
 -- @o@ from its parent action.
@@ -157,6 +180,8 @@ fixMoore (Moore moore) = go
   where
     go :: s -> Moore' o i
     go s = Moore' $ fmap go <$> moore s
+
+--------------------------------------------------------------------------------
 
 -- | Feed inputs into a 'Moore' Machine and extract the observation at
 -- each state/input in a 'scan' style.
@@ -175,6 +200,9 @@ processMoore initialState inputs machine =
    in case inputs of
         [] -> o
         i : xs -> processMoore (transition i) xs machine
+
+processMoore' :: [i] -> Moore' i o -> o
+processMoore' = flip cosieve
 
 --------------------------------------------------------------------------------
 -- Tensors

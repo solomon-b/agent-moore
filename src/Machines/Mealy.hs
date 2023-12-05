@@ -78,6 +78,8 @@ fixMealy (Mealy mealy) = go
     go :: s -> Mealy' i o
     go s = Mealy' (fmap go . mealy s)
 
+--------------------------------------------------------------------------------
+
 -- | Feed inputs into a 'Mealy' Machine and extract the observation at
 -- each state/input in a 'scan' style.
 scanMealy :: s -> [i] -> Mealy s i o -> [(o, s)]
