@@ -41,12 +41,16 @@ library
     
   exposed-modules:
     AgentMoore
+    Machines
+    Machines.Mealy
+    Machines.Moore
 
   build-depends:
     containers,
     profunctors,
     mtl,
-    text
+    text,
+    these
 
   hs-source-dirs: src
  
