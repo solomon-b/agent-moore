@@ -8,8 +8,8 @@ where
 
 --------------------------------------------------------------------------------
 
-import Machines.Mealy as M hiding ((/\))
-import Machines.Moore as M
+import Machines.Mealy as M hiding ((/+\), (/\))
+import Machines.Moore as M hiding ((/+\), (/\))
 
 --------------------------------------------------------------------------------
 
