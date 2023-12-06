@@ -4,12 +4,13 @@
   inputs = {
     nixpkgs.url = github:NixOS/nixpkgs/nixos-23.11;
     flake-utils.url = github:numtide/flake-utils;
+    monoidal-functors.url = github:solomon-b/monoidal-functors/infra/flake-overlay-update;
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
+  outputs = { self, nixpkgs, flake-utils, monoidal-functors }:
     let
       overlay = import ./overlay.nix;
-      overlays = [ overlay ];
+      overlays = [ overlay monoidal-functors.overlays.default ];
     in
     flake-utils.lib.eachSystem [ "x86_64-linux" ]
       (system:

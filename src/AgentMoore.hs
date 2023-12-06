@@ -1,124 +1,18 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE ImportQualifiedPost #-}
-{-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 
 module AgentMoore where
 
 --------------------------------------------------------------------------------
 
-import Control.Monad.Identity
-import Control.Monad.Reader
-import Control.Monad.State
-import Data.Bifunctor
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Profunctor
-
---------------------------------------------------------------------------------
--- Machines
-
--- | A Mealy Machine consists of:
---
---   * A finite set of states @S@
---   * An initial state @s : S@
---   * A finite set called the input @I@
---   * A finite set called the output @O@
---   * A function @transistion : S × I → S@
---   * A function @observe : S × I → O@
---
--- In this particular encoding combine the @transition@ and @Observe@
--- functions into @S × I → O × S@. This definition is isomorphic.
-newtype Mealy s i o = Mealy {runMealy :: s -> i -> (o, s)}
-  deriving
-    (Functor, Applicative, Monad, MonadState s, MonadReader i)
-    via StateT s (ReaderT i Identity)
-
-instance Profunctor (Mealy s) where
-  dimap :: (i' -> i) -> (o -> o') -> Mealy s i o -> Mealy s i' o'
-  dimap f g (Mealy mealy) = Mealy $ fmap (dimap f (first g)) mealy
-
--- | Moore Machine
---
---   * A finite set of states @S@
---   * An initial state @s : S@
---   * A finite set called the input @I@
---   * A finite set called the output @O@
---   * A function @transistion : S × I → S@
---   * A function @observe : S → O@
---
--- In this particular encoding we receive the initial state and
--- produce a tuple of the observation at the initial state and the
--- next state transition function.
-newtype Moore s i o = Moore {runMoore :: s -> (o, i -> s)}
-  deriving (Functor)
-
-instance Profunctor (Moore s) where
-  dimap :: (i' -> i) -> (o -> o') -> Moore s i o -> Moore s i' o'
-  dimap f g (Moore moore) = Moore $ fmap (bimap g (lmap f)) moore
-
---------------------------------------------------------------------------------
--- Running Machines
-
--- | Feed inputs into a 'Mealy' Machine and extract the observation at
--- each state/input in a 'scan' style.
-scanMealy :: s -> [i] -> Mealy s i o -> [(o, s)]
-scanMealy initialState inputs machine =
-  case inputs of
-    [] -> []
-    input : xs ->
-      let (o, s) = runMealy machine initialState input
-       in (o, s) : scanMealy s xs machine
-
--- | Feed inputs into a 'Moore' Machine and extract the observation at
--- each state/input in a 'scan' style.
-scanMoore :: s -> [i] -> Moore s i o -> [(o, s)]
-scanMoore state' inputs machine =
-  let (o, transition) = runMoore machine state'
-   in case inputs of
-        [] -> [(o, state')]
-        i : xs -> (o, state') : scanMoore (transition i) xs machine
-
--- | Feed inputs into a 'Mealy' Machine and then observe the final
--- result.
-processMealy :: s -> [i] -> Mealy s i o -> o
-processMealy state' inputs machine =
-  case inputs of
-    [] -> undefined
-    [input] -> fst (runMealy machine state' input)
-    input : xs ->
-      let (_o, s) = runMealy machine state' input
-       in processMealy s xs machine
-
--- | Feed inputs into a 'Moore' Machine and then observe the final
--- result.
-processMoore :: s -> [i] -> Moore s i o -> o
-processMoore initialState inputs machine =
-  let (o, transition) = runMoore machine initialState
-   in case inputs of
-        [] -> o
-        i : xs -> processMoore (transition i) xs machine
-
---------------------------------------------------------------------------------
-
-data S = A | B | C
-
-data I = I0 | I1
-
-data O = O0 | O1
-
--- | Sample machine for this diagram:
--- http://image.slideserve.com/657197/mealy-machine-example-l.jpg
-exampleMealy :: Mealy S I O
-exampleMealy = Mealy $ curry \case
-  (A, I0) -> (O1, B)
-  (A, I1) -> (O0, C)
-  (B, I0) -> (O0, B)
-  (B, I1) -> (O1, A)
-  (C, I0) -> (O0, A)
-  (C, I1) -> (O0, C)
+import Machines
 
 --------------------------------------------------------------------------------
 -- DAG
@@ -140,7 +34,7 @@ dagToDot graph = "digraph G {\n" ++ concatMap edgesToDot (Map.toList graph) ++ "
 
 -- Convert a node and its adjacent nodes to DOT format strings
 edgesToDot :: (Node, [(Node, o)]) -> String
-edgesToDot (node, adjNodes) = concatMap (\adjNode -> "    " ++ show node ++ " -> " ++ adjNode ++ ";\n") (fmap (show . fst) adjNodes)
+edgesToDot (node, adjNodes) = concatMap ((\adjNode -> "    " ++ show node ++ " -> " ++ adjNode ++ ";\n") . show . fst) adjNodes
 
 -- | https://en.wikipedia.org/wiki/Directed_acyclic_graph#/media/File:Tred-G.svg
 exampleDAG :: DAG Node String

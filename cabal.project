@@ -1,6 +1,0 @@
-packages: .
-
-source-repository-package
-  type: git
-  location: https://github.com/solomon-b/fudgets
-  tag: 81f89c85ba9ef88e268afd14c7e792f58dfe0c72
