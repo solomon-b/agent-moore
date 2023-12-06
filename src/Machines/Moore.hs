@@ -201,6 +201,8 @@ processMoore initialState inputs machine =
         [] -> o
         i : xs -> processMoore (transition i) xs machine
 
+-- | Feed inputs into a 'Moore'' Machine and then observe the final
+-- result.
 processMoore' :: [i] -> Moore' i o -> o
 processMoore' = flip cosieve
 
