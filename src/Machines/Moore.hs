@@ -15,8 +15,8 @@ module Machines.Moore
     processMoore,
     processMoore',
     (/\),
-    (/+\),
     (\/),
+    (/+\),
   )
 where
 

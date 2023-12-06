@@ -1,8 +1,10 @@
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- | Mealy Machines and related machinery.
 module Machines.Mealy
@@ -12,12 +14,14 @@ module Machines.Mealy
     scanMealy,
     processMealy,
     (/\),
+    (\/),
     (/+\),
   )
 where
 
 --------------------------------------------------------------------------------
 
+import Control.Category.Cartesian (split)
 import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
@@ -25,6 +29,8 @@ import Data.Bifunctor (bimap, first)
 import Data.Profunctor (Choice (..), Profunctor, Strong (..))
 import Data.Profunctor.Unsafe (Profunctor (..))
 import Data.These
+import Data.Trifunctor.Monoidal qualified as Trifunctor
+import Data.Void (Void, absurd)
 
 --------------------------------------------------------------------------------
 
@@ -44,6 +50,43 @@ newtype Mealy s i o = Mealy {runMealy :: s -> i -> (o, s)}
     (Functor, Applicative, Monad, MonadState s, MonadReader i)
     via StateT s (ReaderT i Identity)
 
+instance Trifunctor.Semigroupal (->) (,) (,) (,) (,) Mealy where
+  combine :: (Mealy s i o, Mealy t i' o') -> Mealy (s, t) (i, i') (o, o')
+  combine (Mealy m1, Mealy m2) = Mealy $ \(s, t) (i, i') ->
+    let (o, s') = m1 s i
+        (o', t') = m2 t i'
+     in ((o, o'), (s', t'))
+
+instance Trifunctor.Semigroupal (->) (,) Either Either (,) Mealy where
+  combine :: (Mealy s i o, Mealy t i' o') -> Mealy (s, t) (Either i i') (Either o o')
+  combine (Mealy m1, Mealy m2) = Mealy $ \(s, t) -> \case
+    Left i -> bimap Left (,t) $ m1 s i
+    Right i' -> bimap Right (s,) $ m2 t i'
+
+instance Trifunctor.Semigroupal (->) (,) These These (,) Mealy where
+  combine :: (Mealy s i o, Mealy t i' o') -> Mealy (s, t) (These i i') (These o o')
+  combine (Mealy m1, Mealy m2) = Mealy $ \(s, t) -> \case
+    This i -> bimap This (,t) $ m1 s i
+    That i' -> bimap That (s,) $ m2 t i'
+    These i i' ->
+      let (o, s') = m1 s i
+          (o', t') = m2 t i'
+       in (These o o', (s', t'))
+
+instance Trifunctor.Unital (->) () () () () Mealy where
+  introduce :: () -> Mealy () () ()
+  introduce () = Mealy $ \() () -> ((), ())
+
+instance Trifunctor.Unital (->) () Void Void () Mealy where
+  introduce :: () -> Mealy () Void Void
+  introduce () = Mealy $ \() -> absurd
+
+instance Trifunctor.Monoidal (->) (,) () (,) () (,) () (,) () Mealy
+
+instance Trifunctor.Monoidal (->) (,) () Either Void Either Void (,) () Mealy
+
+instance Trifunctor.Monoidal (->) (,) () These Void These Void (,) () Mealy
+
 instance Profunctor (Mealy s) where
   dimap :: (i' -> i) -> (o -> o') -> Mealy s i o -> Mealy s i' o'
   dimap f g (Mealy mealy) = Mealy $ fmap (dimap f (first g)) mealy
@@ -51,6 +94,8 @@ instance Profunctor (Mealy s) where
 instance Strong (Mealy s) where
   first' :: Mealy s i o -> Mealy s (i, c) (o, c)
   first' (Mealy mealy) = Mealy $ \s (i, c) -> first (,c) $ mealy s i
+
+--------------------------------------------------------------------------------
 
 -- | The fixed point of a 'Mealy' Machine. By taking the fixpoint we
 -- are able to hide the state parameter @s@.
@@ -107,18 +152,14 @@ processMealy state' inputs machine =
 infixr 9 /\
 
 (/\) :: Mealy s i o -> Mealy t i o' -> Mealy (s, t) i (o, o')
-(/\) (Mealy b1) (Mealy b2) = Mealy $ \(s, t) i ->
-  let (o, s') = b1 s i
-      (o', t') = b2 t i
-   in (,) (o, o') (s', t')
+(/\) m1 m2 = lmap split $ Trifunctor.combine @_ @(,) @(,) @(,) (m1, m2)
 
 infixr 9 /+\
 
 (/+\) :: Mealy s i o -> Mealy t i' o' -> Mealy (s, t) (These i i') (These o o')
-(/+\) (Mealy m1) (Mealy m2) = Mealy $ \(s, t) -> \case
-  This i -> bimap This (,t) $ m1 s i
-  That i' -> bimap That (s,) $ m2 t i'
-  These i i' ->
-    let (o, s') = m1 s i
-        (o', t') = m2 t i'
-     in (These o o', (s', t'))
+(/+\) m1 m2 = Trifunctor.combine @_ @(,) @These @These (m1, m2)
+
+infixr 9 \/
+
+(\/) :: Mealy s i o -> Mealy t i' o' -> Mealy (s, t) (Either i i') (Either o o')
+(\/) m1 m2 = Trifunctor.combine @_ @(,) @Either @Either (m1, m2)
