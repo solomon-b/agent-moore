@@ -3,7 +3,7 @@ name:               agent-moore
 version:            0.1.0.0
 -- description:
 bug-reports:        https://github.com/solomon-b/co-prompt/agent-moore
-author:             Solomon Bothwell & Chessai
+author:             Solomon Bothwell & chessai
 maintainer:         ssbothwell@gmail.com
 category:           Machines, Dynamical Systems, LLMs, DAGs
 extra-source-files: README.md
@@ -38,23 +38,27 @@ common common-config
 library
   import:
     common-config
-    
+
   exposed-modules:
     AgentMoore
+    --Dag
+    Graph
     Machines
     Machines.Mealy
     Machines.Moore
 
   build-depends:
     containers,
+    dot,
     profunctors,
     monoidal-functors >= 0.2.3.0,
     mtl,
+    primitive,
     text,
     these
 
   hs-source-dirs: src
- 
+
 --------------------------------------------------------------------------------
 
 executable demo
