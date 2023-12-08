@@ -26,6 +26,7 @@ import Control.Monad.Identity
 import Control.Monad.Reader
 import Control.Monad.State
 import Data.Bifunctor (bimap, first)
+import Data.Bifunctor.Monoidal qualified as Bifunctor
 import Data.Profunctor (Choice (..), Profunctor, Strong (..))
 import Data.Profunctor.Unsafe (Profunctor (..))
 import Data.These
@@ -101,6 +102,19 @@ instance Strong (Mealy s) where
 -- are able to hide the state parameter @s@.
 newtype Mealy' i o = Mealy' {runMealy' :: i -> (o, Mealy' i o)}
   deriving stock (Functor)
+
+instance Bifunctor.Semigroupal (->) (,) (,) (,) Mealy' where
+  combine :: (Mealy' i o, Mealy' i' o') -> Mealy' (i, i') (o, o')
+  combine (Mealy' m1, Mealy' m2) = Mealy' $ \(i, i') ->
+    let (o, m1') = m1 i
+        (o', m2') = m2 i'
+     in ((o, o'), Bifunctor.combine (m1', m2'))
+
+instance Bifunctor.Unital (->) () () () Mealy' where
+  introduce :: () -> Mealy' () ()
+  introduce () = Mealy' $ \() -> ((), Bifunctor.introduce ())
+
+instance Bifunctor.Monoidal (->) (,) () (,) () (,) () Mealy'
 
 instance Profunctor Mealy' where
   dimap :: (i' -> i) -> (o -> o') -> Mealy' i o -> Mealy' i' o'
