@@ -69,5 +69,7 @@ executable demo
 
   build-depends:
     agent-moore,
+    dot,
+    text
 
   hs-source-dirs:   apps/demo
