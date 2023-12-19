@@ -40,7 +40,8 @@ edgesToDot (node, adjNodes) = concatMap ((\adjNode -> "    " ++ show node ++ " -
 exampleDAG :: DAG Node String
 exampleDAG =
   Map.fromList
-    [ (NA, fmap (,"foo") [NB, NC, ND, NE]),
+    [ 
+      (NA, fmap (,"foo") [NB, NC, ND, NE]),
       (NB, fmap (,"foo") [ND]),
       (NC, fmap (,"foo") [ND, NE]),
       (ND, fmap (,"foo") [NE]),
