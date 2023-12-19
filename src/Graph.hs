@@ -1,5 +1,8 @@
 {-# language
-    DuplicateRecordFields
+    DeriveFunctor
+  , DerivingStrategies
+  , DuplicateRecordFields
+  , InstanceSigs
   , MonoLocalBinds
   , OverloadedRecordDot
   , OverloadedStrings
@@ -22,6 +25,7 @@ module Graph
   , empty
   , addEdge
   , addEdges
+  , removeVertex
 
   , numVertices
   , numEdges
@@ -31,7 +35,10 @@ module Graph
   , neighbors
   , vertices
   , edges
+
   , selfLoops
+  , enumerateCycles
+  , enumerateCyclesWithoutSelfLoops
 
   , toDot
 
@@ -39,8 +46,10 @@ module Graph
   )
   where
 
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, when, void)
 import Data.Foldable (traverse_)
+import Data.Foldable qualified as F
+import Data.Graph qualified as Containers
 import Control.Monad.ST (ST, runST)
 import Control.Monad.Primitive (MonadPrim)
 import Data.Primitive.MutVar (MutVar, newMutVar, modifyMutVar', readMutVar, writeMutVar)
@@ -57,16 +66,20 @@ import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Dot.Text qualified as Dot
 import Dot.Types qualified as Dot
+import GHC.Stack (HasCallStack)
 
 data Labeled label a = Labeled
   { label :: Maybe label
   , value :: a
   }
+  deriving stock (Functor)
 
 instance (Eq a) => Eq (Labeled label a) where
+  (==) :: Eq a => Labeled label a -> Labeled label a -> Bool
   l1 == l2 = l1.value == l2.value
 
 instance (Ord a) => Ord (Labeled label a) where
+  (<=) :: Ord a => Labeled label a -> Labeled label a -> Bool
   l1 <= l2 = l1.value <= l2.value
 
 newtype Graph weight nodeLabel edgeLabel node = Graph
@@ -186,6 +199,52 @@ edges =
   . Map.map Map.toList
   . getGraph
 
+mapVertices
+  :: (Ord node, Ord node')
+  => (node -> node') -- ^ Must be a bijection!
+  -> Graph weight nodeLabel edgeLabel node
+  -> Graph weight nodeLabel edgeLabel node'
+mapVertices f = Graph . Map.map (Map.mapKeys (fmap f)) . Map.mapKeys (fmap f) . getGraph
+
+removeVertex :: (Ord node)
+  => node
+  -> Graph weight nodeLabel edgeLabel node
+  -> Graph weight nodeLabel edgeLabel node
+removeVertex n = Graph . fmap (Map.delete (peeking n)) . Map.delete (peeking n) . getGraph
+
+-- Map (Labeled nodeLabel node) (Map (Labeled edgeLabel node) (Maybe weight))
+
+sccGraph :: forall weight nodeLabel edgeLabel node. (Ord node)
+  => Graph weight nodeLabel edgeLabel node
+  -> Map node Word
+sccGraph graph = Map.fromList (concatMap (\(i, ns) -> List.map (, i) ns) (List.zip [0..] scc))
+  where
+    scc :: [[node]]
+    scc = sccListGraph graph
+  
+sccListGraph :: forall weight nodeLabel edgeLabel node. (Ord node, HasCallStack)
+  => Graph weight nodeLabel edgeLabel node
+  -> [[node]]
+sccListGraph (Graph graph) =
+  map (map (intToVertices Map.!) . F.toList)
+  $ Containers.scc
+  $ Containers.buildG bounds
+  $ concatMap (\(i, js) -> List.map (\(j, _) -> (i.value, j.value)) (Map.toList js))
+  $ Map.toList
+  $ getGraph
+  $ mapVertices (verticesToInt Map.!) (Graph graph)
+  where
+    bounds :: Containers.Bounds
+    bounds = (0, Map.size graph - 1)
+
+    verticesToInt :: Map node Int
+    verticesToInt =
+      Map.fromList $ zipWith (\(n, _) i -> (n.value, i)) (Map.toAscList graph) [0..]
+
+    intToVertices :: Map Int node
+    intToVertices =
+      Map.fromList $ zipWith (\i (n, _) -> (i, n.value)) [0..] (Map.toAscList graph)
+
 selfLoops :: (Ord node)
   => Graph weight nodeLabel edgeLabel node
   -> [node]
@@ -217,17 +276,25 @@ newTable = Table <$> newMutVar mempty
 insertTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> v -> m ()
 insertTable (Table t) k v = modifyMutVar' t (Map.insert k v)
 
+findWithDefaultTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> v -> k -> m v
+findWithDefaultTable (Table t) def k = Map.findWithDefault def k <$> readMutVar t
+
+{-
 lookupTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> m (Maybe v)
 lookupTable (Table t) k = Map.lookup k <$> readMutVar t
 
-findWithDefaultTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> v -> k -> m v
-findWithDefaultTable (Table t) def k = Map.findWithDefault def k <$> readMutVar t
 
 deleteTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> m ()
 deleteTable (Table t) k = modifyMutVar' t (Map.delete k)
 
 modifyTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> (v -> v) -> m ()
 modifyTable (Table t) k f = modifyMutVar' t (Map.adjust f k)
+-}
+
+enumerateCycles :: forall weight nodeLabel edgeLabel node. (Ord node, Ord weight)
+  => Graph weight nodeLabel edgeLabel node
+  -> [[node]]
+enumerateCycles g = List.map List.singleton (selfLoops g) ++ enumerateCyclesWithoutSelfLoops (removeSelfLoops g)
 
 enumerateCyclesWithoutSelfLoops :: forall weight nodeLabel edgeLabel node. (Ord node)
   => Graph weight nodeLabel edgeLabel node
@@ -306,18 +373,38 @@ enumerateCyclesWithoutSelfLoops graph = runST impl
 
       let sccWithVertex :: node -> Graph x0 x1 x2 node -> Graph x0 x1 x2 node
           sccWithVertex v g = runST $ do
-            undefined --let scc = sccGraph g
+            let scc = sccGraph g 
+            let n = scc Map.! v -- we know it's in there!
+            sgVar <- newMutVar empty
+            forM_ (vertices g) $ \(v1, _) -> 
+              when (scc Map.! v1 == n) $ do
+                forM_ (neighbors g v1) $ \(v2, _, _) -> do
+                  when (scc Map.! v2 == n) $ do
+                    modifyMutVar' sgVar (addEdge $ edge v1 v2) -- we don't care about labels
+            readMutVar sgVar
+      
+      let nonDegenerateSCC :: [[node]]
+          nonDegenerateSCC = List.filter (\s -> List.length s > 1) (sccListGraph graph)
 
+      let nonDegenerateSubgraphs :: [Graph weight nodeLabel edgeLabel node]
+          nonDegenerateSubgraphs = List.map (`extractSubgraph` graph) (List.sort nonDegenerateSCC)
 
-      pure []
+      forM_ nonDegenerateSubgraphs $ \subgraph -> do
+        let go :: Graph weight nodeLabel edgeLabel node -> [node] -> ST s ()
+            go g = \case
+              [] -> pure ()
+              s : rest -> do
+                let component = sccWithVertex s g
+                when (numEdges component > 0) $ do
+                  forM_ (vertices component) $ \(n, _) -> do
+                    setBlocked n False
+                    setB n []
+                  void $ circuit s s component
+                go (removeVertex s g) rest
+        go subgraph (List.sort (List.map fst (vertices subgraph)))
 
-{-
-sccListGraph :: (Ord node)
-  => Graph weight nodeLabel edgeLabel node
-  -> [[node]]
-sccListGraph graph =
-  List.map (List.map
--}
+      -- final result
+      List.map reverse . reverse <$> readMutVar resultVar
 
 testGraph :: Graph () Text Text Int
 testGraph = empty
@@ -328,6 +415,14 @@ testGraph = empty
   & addEdge (edge 3 5 & setNodeLabel "E" & setEdgeLabel "35")
   & addEdge (edge 5 2 & setNodeLabel "F" & setEdgeLabel "52")
   & addEdge (edge 5 5 & setNodeLabel "G" & setEdgeLabel "55")
+
+testGraph1 :: Graph () Text Text Word
+testGraph1 = empty
+  & addEdge (edge 2 3)
+  & addEdge (edge 2 4)
+  & addEdge (edge 0 4)
+  & addEdge (edge 1 4)
+  & addEdge (edge 3 4)
 
 test :: IO ()
 test = do
@@ -341,6 +436,10 @@ test = do
 
   p testGraph
   p $ removeSelfLoops testGraph
+  --print $ enumerateCyclesWithoutSelfLoops testGraph
+
+  --p testGraph1
+  --print $ enumerateCyclesWithoutSelfLoops testGraph1
 
 toDot :: forall weight nodeLabel edgeLabel node. (Ord node)
   => (weight -> Text)
@@ -389,7 +488,7 @@ i2w :: Int -> Word
 i2w = fromIntegral
 
 -- Pass this to a lookup of a labeled value in a Map/Set.
--- the ord instance for Labeled doesn't compare the label.
+-- the Eq and Ord instances for Labeled don't compare the label.
 peeking :: node -> Labeled label node
 peeking = Labeled Nothing
 
