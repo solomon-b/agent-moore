@@ -37,8 +37,11 @@ module Graph
   , edges
 
   , selfLoops
-  , enumerateCycles
-  , enumerateCyclesWithoutSelfLoops
+  , removeSelfLoops
+  , sccGraph
+  , sccListGraph
+
+  , mapVertices
 
   , toDot
 
@@ -46,13 +49,8 @@ module Graph
   )
   where
 
-import Control.Monad (forM_, when, void)
-import Data.Foldable (traverse_)
 import Data.Foldable qualified as F
 import Data.Graph qualified as Containers
-import Control.Monad.ST (ST, runST)
-import Control.Monad.Primitive (MonadPrim)
-import Data.Primitive.MutVar (MutVar, newMutVar, modifyMutVar', readMutVar, writeMutVar)
 import Data.Bifunctor (first)
 import Data.Function ((&))
 import Data.List qualified as List
@@ -268,144 +266,6 @@ removeSelfLoops g =
     )
     (addEdges (List.map (\(n, nl) -> (vertex n) { nodeLabel = nl }) (vertices g)) empty)
 
-newtype Table s k v = Table (MutVar s (Map k v))
-
-newTable :: forall s m k v. (MonadPrim s m, Ord k) => m (Table s k v)
-newTable = Table <$> newMutVar mempty
-
-insertTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> v -> m ()
-insertTable (Table t) k v = modifyMutVar' t (Map.insert k v)
-
-findWithDefaultTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> v -> k -> m v
-findWithDefaultTable (Table t) def k = Map.findWithDefault def k <$> readMutVar t
-
-{-
-lookupTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> m (Maybe v)
-lookupTable (Table t) k = Map.lookup k <$> readMutVar t
-
-
-deleteTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> m ()
-deleteTable (Table t) k = modifyMutVar' t (Map.delete k)
-
-modifyTable :: forall s m k v. (MonadPrim s m, Ord k) => Table s k v -> k -> (v -> v) -> m ()
-modifyTable (Table t) k f = modifyMutVar' t (Map.adjust f k)
--}
-
-enumerateCycles :: forall weight nodeLabel edgeLabel node. (Ord node, Ord weight)
-  => Graph weight nodeLabel edgeLabel node
-  -> [[node]]
-enumerateCycles g = List.map List.singleton (selfLoops g) ++ enumerateCyclesWithoutSelfLoops (removeSelfLoops g)
-
-enumerateCyclesWithoutSelfLoops :: forall weight nodeLabel edgeLabel node. (Ord node)
-  => Graph weight nodeLabel edgeLabel node
-  -> [[node]]
-enumerateCyclesWithoutSelfLoops graph = runST impl
-  where
-    impl :: forall s. ST s [[node]]
-    impl = do
-      pathVar    <- newMutVar @_ @[node] []
-      blockedVar <- newTable  @_ @_ @node @Bool
-      bVar       <- newTable  @_ @_ @node @[node]
-      resultVar  <- newMutVar @_ @[[node]] []
-
-      let getBlocked :: node -> ST s Bool
-          getBlocked = findWithDefaultTable blockedVar False
-      let setBlocked :: node -> Bool -> ST s ()
-          setBlocked = insertTable blockedVar
-
-      let getB :: node -> ST s [node]
-          getB = findWithDefaultTable bVar []
-      let setB :: node -> [node] -> ST s ()
-          setB = insertTable bVar
-
-      let push :: node -> ST s ()
-          push n = modifyMutVar' pathVar (n :)
-      let pop :: ST s ()
-          pop = modifyMutVar' pathVar tail
-
-      let unblock :: node -> ST s ()
-          unblock n = do
-            b <- getBlocked n
-            when b $ do
-              setBlocked n False
-              getB n >>= traverse_ unblock
-              setB n []
-
-      let circuit :: node -> node -> Graph x0 x1 x2 node -> ST s Bool
-          circuit thisNode startNode component = do
-            closedVar <- newMutVar False
-            push thisNode
-            setBlocked thisNode True
-            let neighbors_ = neighbors component thisNode
-            forM_ neighbors_ $ \(nextNode, _, _) -> do
-              if nextNode == startNode
-              then do
-                path <- readMutVar pathVar
-                modifyMutVar' resultVar (path :)
-                writeMutVar closedVar True
-              else do
-                nextBlocked <- getBlocked nextNode
-                when (not nextBlocked) $ do
-                  closed <- circuit nextNode startNode component
-                  when closed $ do
-                    writeMutVar closedVar True
-            closed <- readMutVar closedVar
-            if closed
-            then do
-              unblock thisNode
-            else do
-              forM_ neighbors_ $ \(nextNode, _, _) -> do
-                l <- getB nextNode
-                when (thisNode `notElem` l) $ do
-                  setB nextNode (thisNode : l)
-            pop
-            pure closed
-
-      let extractSubgraph :: [node] -> Graph x0 x1 x2 node -> Graph x0 x1 x2 node
-          extractSubgraph s g = runST $ do
-            sgVar <- newMutVar empty
-            forM_ s $ \v1 -> do
-              modifyMutVar' sgVar (addEdge (vertex v1))
-              forM_ (neighbors g v1) $ \(v2, _, _) -> do
-                when (v2 `elem` s) $ do
-                  modifyMutVar' sgVar (addEdge (edge v1 v2))
-            readMutVar sgVar
-
-      let sccWithVertex :: node -> Graph x0 x1 x2 node -> Graph x0 x1 x2 node
-          sccWithVertex v g = runST $ do
-            let scc = sccGraph g 
-            let n = scc Map.! v -- we know it's in there!
-            sgVar <- newMutVar empty
-            forM_ (vertices g) $ \(v1, _) -> 
-              when (scc Map.! v1 == n) $ do
-                forM_ (neighbors g v1) $ \(v2, _, _) -> do
-                  when (scc Map.! v2 == n) $ do
-                    modifyMutVar' sgVar (addEdge $ edge v1 v2) -- we don't care about labels
-            readMutVar sgVar
-      
-      let nonDegenerateSCC :: [[node]]
-          nonDegenerateSCC = List.filter (\s -> List.length s > 1) (sccListGraph graph)
-
-      let nonDegenerateSubgraphs :: [Graph weight nodeLabel edgeLabel node]
-          nonDegenerateSubgraphs = List.map (`extractSubgraph` graph) (List.sort nonDegenerateSCC)
-
-      forM_ nonDegenerateSubgraphs $ \subgraph -> do
-        let go :: Graph weight nodeLabel edgeLabel node -> [node] -> ST s ()
-            go g = \case
-              [] -> pure ()
-              s : rest -> do
-                let component = sccWithVertex s g
-                when (numEdges component > 0) $ do
-                  forM_ (vertices component) $ \(n, _) -> do
-                    setBlocked n False
-                    setB n []
-                  void $ circuit s s component
-                go (removeVertex s g) rest
-        go subgraph (List.sort (List.map fst (vertices subgraph)))
-
-      -- final result
-      List.map reverse . reverse <$> readMutVar resultVar
-
 testGraph :: Graph () Text Text Int
 testGraph = empty
   & addEdge (edge 0 1 & setNodeLabel "A" & setEdgeLabel "01")
@@ -415,14 +275,6 @@ testGraph = empty
   & addEdge (edge 3 5 & setNodeLabel "E" & setEdgeLabel "35")
   & addEdge (edge 5 2 & setNodeLabel "F" & setEdgeLabel "52")
   & addEdge (edge 5 5 & setNodeLabel "G" & setEdgeLabel "55")
-
-testGraph1 :: Graph () Text Text Word
-testGraph1 = empty
-  & addEdge (edge 2 3)
-  & addEdge (edge 2 4)
-  & addEdge (edge 0 4)
-  & addEdge (edge 1 4)
-  & addEdge (edge 3 4)
 
 test :: IO ()
 test = do
@@ -436,10 +288,6 @@ test = do
 
   p testGraph
   p $ removeSelfLoops testGraph
-  --print $ enumerateCyclesWithoutSelfLoops testGraph
-
-  --p testGraph1
-  --print $ enumerateCyclesWithoutSelfLoops testGraph1
 
 toDot :: forall weight nodeLabel edgeLabel node. (Ord node)
   => (weight -> Text)
