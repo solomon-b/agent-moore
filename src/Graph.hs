@@ -35,6 +35,7 @@ module Graph
   , neighbors
   , vertices
   , edges
+  , toList
 
   , selfLoops
   , removeSelfLoops
@@ -141,6 +142,9 @@ addEdge b (Graph g) =
       Nothing -> Map.empty
       Just e -> Map.singleton (Labeled b.edgeLabel e) b.edgeWeight
 
+
+      --   Graph . Map.insertWith Map.union source (Map.singleton target weight) . fromGraph
+
 addEdges :: (Ord node, Ord weight)
   => [EdgeBuilder weight nodeLabel edgeLabel node]
   -> Graph        weight nodeLabel edgeLabel node
@@ -196,6 +200,16 @@ edges =
   . Map.toList
   . Map.map Map.toList
   . getGraph
+
+toList :: ()
+  => Graph weight nodeLabel edgeLabel node
+  -> [(node, Maybe nodeLabel, [(node, Maybe edgeLabel, Maybe weight)])]
+toList =
+  id
+  . List.map (\(n, es) -> (n.value, n.label, List.map (\(e, w) -> (e.value, e.label, w)) es))
+  . Map.toList
+  . Map.map Map.toList
+  . getGraph 
 
 mapVertices
   :: (Ord node, Ord node')

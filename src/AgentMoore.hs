@@ -34,7 +34,10 @@ graphToMealy :: forall i o weight nodeLabel node. (Ord node, Ord weight, Eq o)
 graphToMealy observe (G.removeSelfLoops -> g) =
   let
     vs :: Map node [(node, weight, o)]
-    vs = Map.fromList $ List.map (\v -> (v, List.map (\(n, w, el) -> (n, fromJust "weight" w, fromJust "edge label" el)) $ G.neighbors g v)) $ List.map fst $ G.vertices g
+    vs = Map.fromList
+      $ List.map (\(n, es) -> (n, List.map (\(eNode, el, w) -> (eNode, fromJust "weight" w, fromJust "edge label" el)) es))
+      $ List.map (\(n, _, es) -> (n, es))
+      $ G.toList g --List.map (\v -> (v, List.map (\(n, w, el) -> (n, fromJust "weight" w, fromJust "edge label" el)) $ G.neighbors g v)) $ List.map fst $ G.vertices g
   in
   Mealy $ \currentNode input -> 
     let
@@ -43,18 +46,20 @@ graphToMealy observe (G.removeSelfLoops -> g) =
       observation = observe currentNode input
 
       -- all the edges out from the current node
-      edges :: [(node, weight, o)]
-      edges = fromJust "lookup currentNode" $ Map.lookup currentNode vs
+      edges :: Maybe [(node, weight, o)]
+      edges = Map.lookup currentNode vs
 
       -- Filter for edges that match the observation, then sort by weight descending
-      choiceEdges :: [(node, weight, o)]
-      choiceEdges = List.sortOn (\(_, w, _) -> Down w) $ List.filter (\(_, _, x) -> x == observation) $ edges
+      choiceEdges :: Maybe [(node, weight, o)]
+      choiceEdges = fmap (List.sortOn (\(_, w, _) -> Down w) . List.filter (\(_, _, x) -> x == observation)) $ edges
     in
     case choiceEdges of
       -- terminal node. maybe this should be an error case?
-      [] -> (Nothing, currentNode)
+      Nothing -> (Nothing, currentNode)
+      -- terminal node. maybe this should be an error case?
+      Just [] -> (Nothing, currentNode)
       -- we make an observation here.
-      (target, _, _) : _ -> (Just observation, target)
+      Just ((target, _, _) : _) -> (Just observation, target)
 
 fromJust :: String -> Maybe a -> a
 fromJust err = \case 
