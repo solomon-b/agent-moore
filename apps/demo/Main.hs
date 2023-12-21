@@ -1,5 +1,6 @@
 {-# language
-    OverloadedStrings
+    OverloadedRecordDot
+  , OverloadedStrings
 #-}
 
 module Main where
@@ -12,6 +13,9 @@ import Data.Function ((&))
 import Graph (Graph, edge, addEdge, setNodeLabel, setEdgeLabel, setEdgeWeight)
 import Graph qualified as G
 import Machines
+import Data.Map (Map)
+import Data.Set (Set)
+import Data.Set qualified as Set
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
@@ -70,6 +74,73 @@ simpleTestGraph = extraSimpleTestGraph
   & addEdge (edge 3 4 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 5)
   & addEdge (edge 4 2 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 6)
   & addEdge (edge 4 0 & setEdgeLabel Understood       & setEdgeWeight 2)
+
+-------------------------------------------------
+--                                             --
+-------------------------------------------------
+
+data ProblemStats = ProblemStats
+  { numAttempts :: Word
+  , numQuestionsAsked :: Word
+  , progressionScore :: Double -- in [0, 1]. vague notion of how much understanding the student gained by asking questions/repeated attempts of the problem
+  , timeSpent :: Word -- elapsed seconds
+  , solved :: Bool
+  }
+  deriving stock (Eq, Show)
+
+data Input = Input
+  { stats :: ProblemStats
+  , history :: Map ProblemType ProblemStats
+  }
+
+data Observation
+  = NeedsMoreContext
+  | NeedsDifferentProblemType
+  | GoodGraspOnSubjectNeedsMorePractice
+  | GreatGraspOnSubjectCanMoveOn
+  deriving stock (Eq, Show)
+
+data ProblemType
+  = VisualProblem
+  | WordProblem
+  deriving stock (Eq, Show)
+
+data Node = Node
+  { problemId :: ProblemId
+  , problemType :: ProblemType
+  -- , goodVibes :: Set Node -- nodes that are suspected to work well with this node to progress the student
+  -- , badVibes :: Set Node -- nodes that are suspected to work poorly with this node to progress the student
+  }
+  deriving stock (Eq, Show)
+
+observe :: Input -> Node -> Observation
+observe i n
+  | i.stats.solved = observeSolved i n
+  | otherwise = observeUnsolved i n
+  where
+    observeSolved :: Input -> Node -> Observation
+    observeSolved i n = undefined
+
+    observeUnsolved :: Input -> Node -> Observation
+    observeUnsolved i n = undefined
+
+{-
+data Input = Input
+  { numAttempts :: Word
+  , numQuestionsAsked :: Word
+  , progressionScore :: Double -- in [0, 1]. vague notion of how much understanding the student gained by asking questions/repeated attempts of the problem
+  , timeSpent :: Word -- elapsed seconds
+  , solved :: Word
+  }
+  deriving stock (Eq, Show)
+
+data Observation
+  = NeedsMoreContext
+  | NeedsDifferentProblemType
+  | GoodGraspOnSubjectNeedsMorePractice
+  | GreatGraspOnSubjectCanMoveOn
+-}
+
 
 p :: (Show w, Show el, Show n, Ord n) => Graph w Text el n -> IO ()
 p g = Text.putStrLn $ Dot.encode $ G.toDot (Text.pack . show) id (Text.pack . show) (Text.pack . show) g

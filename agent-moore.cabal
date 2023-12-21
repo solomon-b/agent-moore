@@ -69,6 +69,7 @@ executable demo
 
   build-depends:
     agent-moore,
+    containers,
     dot,
     text
 
