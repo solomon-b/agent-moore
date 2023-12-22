@@ -14,6 +14,7 @@ module AgentMoore
 
 --------------------------------------------------------------------------------
 
+import Control.Monad (join)
 import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -21,7 +22,8 @@ import Graph (Graph)
 import Graph qualified as G
 import Data.Ord (Down(..))
 import Machines (Mealy(..))
-
+import Data.List.NonEmpty (NonEmpty(..))
+import Data.List.NonEmpty qualified as NE
 
 -- | Convert a Graph to a Mealy machine.
 --
@@ -34,6 +36,7 @@ graphToMealy :: forall i o weight nodeLabel node. (Ord node, Ord weight, Eq o)
   -> Mealy node i (Maybe o)
 graphToMealy observe (G.removeSelfLoops -> g) =
   let
+    -- all edges
     vs :: Map node [(node, weight, o)]
     vs = Map.fromList
       $ List.map (\(n, es) -> (n, List.map (\(eNode, el, w) -> (eNode, fromJust "weight" w, fromJust "edge label" el)) es))
@@ -51,16 +54,14 @@ graphToMealy observe (G.removeSelfLoops -> g) =
       edges = Map.lookup currentNode vs
 
       -- Filter for edges that match the observation, then sort by weight descending
-      choiceEdges :: Maybe [(node, weight, o)]
-      choiceEdges = fmap (List.sortOn (\(_, w, _) -> Down w) . List.filter (\(_, _, x) -> x == observation)) $ edges
+      choiceEdges :: Maybe (NonEmpty (node, weight, o))
+      choiceEdges = join $ fmap NE.nonEmpty $ fmap (List.sortOn (\(_, w, _) -> Down w) . List.filter (\(_, _, x) -> x == observation)) $ edges
     in
     case choiceEdges of
       -- terminal node. maybe this should be an error case?
       Nothing -> (Nothing, currentNode)
-      -- terminal node. maybe this should be an error case?
-      Just [] -> (Nothing, currentNode)
       -- we make an observation here.
-      Just ((target, _, _) : _) -> (Just observation, target)
+      Just ((target, _, _) :| _) -> (Just observation, target)
 
 fromJust :: String -> Maybe a -> a
 fromJust err = \case 

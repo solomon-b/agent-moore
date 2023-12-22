@@ -221,8 +221,6 @@ removeVertex :: (Ord node)
   -> Graph weight nodeLabel edgeLabel node
 removeVertex n = Graph . fmap (Map.delete (peeking n)) . Map.delete (peeking n) . getGraph
 
--- Map (Labeled nodeLabel node) (Map (Labeled edgeLabel node) (Maybe weight))
-
 sccGraph :: forall weight nodeLabel edgeLabel node. (Ord node)
   => Graph weight nodeLabel edgeLabel node
   -> Map node Word
