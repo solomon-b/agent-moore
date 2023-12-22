@@ -5,96 +5,65 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE ViewPatterns #-}
 
-module AgentMoore where
+module AgentMoore
+  ( graphToMealy
+  )
+  where
 
 --------------------------------------------------------------------------------
 
+import Control.Monad (join)
+import Data.List qualified as List
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Machines
+import Graph (Graph)
+import Graph qualified as G
+import Data.Ord (Down(..))
+import Machines (Mealy(..))
+import Data.List.NonEmpty (NonEmpty(..))
+import Data.List.NonEmpty qualified as NE
 
---------------------------------------------------------------------------------
--- DAG
-
--- | Lets use the same Fin3 to represent a DAG with 3 nodes:
-data Node = NA | NB | NC | ND | NE
-  deriving (Show, Eq, Ord)
-
--- | Edge Labels
-data Edge = E1 | E2 | E3 | E4
-
-type DAG n o = Map n [(n, o)]
-
-type Graph = DAG Node String
-
--- Convert a DAG to a DOT format string
-dagToDot :: Graph -> String
-dagToDot graph = "digraph G {\n" ++ concatMap edgesToDot (Map.toList graph) ++ "}"
-
--- Convert a node and its adjacent nodes to DOT format strings
-edgesToDot :: (Node, [(Node, o)]) -> String
-edgesToDot (node, adjNodes) = concatMap ((\adjNode -> "    " ++ show node ++ " -> " ++ adjNode ++ ";\n") . show . fst) adjNodes
-
--- | https://en.wikipedia.org/wiki/Directed_acyclic_graph#/media/File:Tred-G.svg
-exampleDAG :: DAG Node String
-exampleDAG =
-  Map.fromList
-    [ (NA, fmap (,"foo") [NB, NC, ND, NE]),
-      (NB, fmap (,"foo") [ND]),
-      (NC, fmap (,"foo") [ND, NE]),
-      (ND, fmap (,"foo") [NE]),
-      (NE, [])
-    ]
-
---------------------------------------------------------------------------------
--- DAG Machine
+-- | Convert a Graph to a Mealy machine.
 --
--- We want to define some machine which when given an initial state is
--- able to traverse the DAG and then present an observation of the
--- result.
---
--- We started with a Mealy Machine, but I'm now thinking that we
--- should be using Moore. Hence this code is a big fragmented and
--- doesn't all add up properly.
---
--- I think we want Moore instead of Mealy because we want to simply
--- iterate the state repeatedly and then take a single final
--- observation after completing our DAG traversal. The two machines
--- can be defined in terms of one another, but I think Moore fits our
--- problem more ergonomically.
+--   This takes an observation function which operates on the current node and some input.
+--   The edge labels between nodes are observations.
+--   (Weighted) Observations determine transitions.
+graphToMealy :: forall i o weight nodeLabel node. (Ord node, Ord weight, Eq o)
+  => (node -> i -> o)
+  -> Graph weight nodeLabel o node -- edge labels are observations
+  -> Mealy node i (Maybe o)
+graphToMealy observe (G.removeSelfLoops -> g) =
+  let
+    -- all edges
+    vs :: Map node [(node, weight, o)]
+    vs = Map.fromList
+      $ List.map (\(n, es) -> (n, List.map (\(eNode, el, w) -> (eNode, fromJust "weight" w, fromJust "edge label" el)) es))
+      $ List.map (\(n, _, es) -> (n, es))
+      $ G.toList g
+  in
+  Mealy $ \currentNode input -> 
+    let
+      -- make the observation
+      observation :: o
+      observation = observe currentNode input
 
--- | A 'Mealy' Machine which can walk 'exampleDAG'.
-equivalentMealy :: Mealy Node Edge (Maybe String)
-equivalentMealy = Mealy $ curry \case
-  (NA, E1) -> (Just "A -> B", NB)
-  (NA, E2) -> (Just "A -> C", NC)
-  (NA, E3) -> (Just "A -> D", ND)
-  (NA, E4) -> (Just "A -> E", NE)
-  (NB, E3) -> (Just "B -> D", ND)
-  (NC, E3) -> (Just "C -> D", ND)
-  (NC, E4) -> (Just "C -> E", NE)
-  (ND, E4) -> (Just "D -> E", NE)
-  (s, _) -> (Nothing, s)
+      -- all the edges out from the current node
+      edges :: Maybe [(node, weight, o)]
+      edges = Map.lookup currentNode vs
 
--- | A 'Moore' Machine which can walk 'exampleDAG'.
-equivalentMoore :: Moore Node Edge (Maybe String)
-equivalentMoore = Moore $ \case
-  NA -> (Just "NA", \case E1 -> NB; E2 -> NC; E3 -> ND; E4 -> NE)
-  NB -> (Just "NB", \case E3 -> ND; _ -> NB)
-  NC -> (Just "NC", \case E3 -> ND; E4 -> NE; _ -> NC)
-  ND -> (Just "ND", \case E4 -> NE; _ -> ND)
-  NE -> (Just "Finished!", const NE)
+      -- Filter for edges that match the observation, then sort by weight descending
+      choiceEdges :: Maybe (NonEmpty (node, weight, o))
+      choiceEdges = join $ fmap NE.nonEmpty $ fmap (List.sortOn (\(_, w, _) -> Down w) . List.filter (\(_, _, x) -> x == observation)) $ edges
+    in
+    case choiceEdges of
+      -- terminal node. maybe this should be an error case?
+      Nothing -> (Nothing, currentNode)
+      -- we make an observation here.
+      Just ((target, _, _) :| _) -> (Just observation, target)
 
--- TODO:
-dag2mealy :: DAG n o -> Mealy n Word (Maybe o)
-dag2mealy = undefined
-
-dag2moore :: DAG n o -> Moore n Word (Maybe o)
-dag2moore = undefined
-
-interpretMealy :: Mealy n Word (Maybe o) -> IO ()
-interpretMealy = undefined
-
-interpretMoore :: Moore n Word (Maybe o) -> IO ()
-interpretMoore = undefined
+fromJust :: String -> Maybe a -> a
+fromJust err = \case 
+  Nothing -> error err
+  Just a -> a
