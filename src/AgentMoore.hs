@@ -27,6 +27,7 @@ import Machines (Mealy(..))
 --
 --   This takes an observation function which operates on the current node and some input.
 --   The edge labels between nodes are observations.
+--   (Weighted) Observations determine transitions.
 graphToMealy :: forall i o weight nodeLabel node. (Ord node, Ord weight, Eq o)
   => (node -> i -> o)
   -> Graph weight nodeLabel o node -- edge labels are observations
@@ -37,7 +38,7 @@ graphToMealy observe (G.removeSelfLoops -> g) =
     vs = Map.fromList
       $ List.map (\(n, es) -> (n, List.map (\(eNode, el, w) -> (eNode, fromJust "weight" w, fromJust "edge label" el)) es))
       $ List.map (\(n, _, es) -> (n, es))
-      $ G.toList g --List.map (\v -> (v, List.map (\(n, w, el) -> (n, fromJust "weight" w, fromJust "edge label" el)) $ G.neighbors g v)) $ List.map fst $ G.vertices g
+      $ G.toList g
   in
   Mealy $ \currentNode input -> 
     let
