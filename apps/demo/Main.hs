@@ -21,7 +21,6 @@ import Data.Map.Strict qualified as Map
 --import Data.Maybe (fromMaybe)
 --import Data.Set (Set)
 --import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Dot.Text qualified as Dot
@@ -64,7 +63,7 @@ simpleObserve _ = \case
   Solved -> Understood
   Didn'tSolve -> Didn'tUnderstand
 
-type SimpleGraph = Graph Weight Text SimpleObservation ProblemId
+type SimpleGraph = Graph Weight SimpleObservation ProblemId
 
 extraSimpleTestGraph :: SimpleGraph
 extraSimpleTestGraph = G.empty
@@ -84,9 +83,9 @@ simpleTestGraph = extraSimpleTestGraph
   & addEdge (edge 4 2 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 6)
   & addEdge (edge 4 0 & setEdgeLabel Understood       & setEdgeWeight 2)
 
--------------------------------------------------
---                                             --
--------------------------------------------------
+---------------------------------------------------------
+-- More complex logic, not just a binary decision tree --
+---------------------------------------------------------
 
 type History = Map ProblemType [ProblemStats]
 
@@ -191,7 +190,7 @@ observe i0 n0
              | otherwise                                -> NeedsMoreContext
       | otherwise = NeedsMoreContext
 
-type DemoGraph = Graph Weight Text Observation Node
+type DemoGraph = Graph Weight Observation Node
 
 demoInputs :: [Input]
 demoInputs =
@@ -251,5 +250,5 @@ node3 = Node 3 VisualProblem
 node4 :: Node
 node4 = Node 4 WordProblem
 
-p :: (Show w, Show el, Show n, Ord n) => Graph w Text el n -> IO ()
-p g = Text.putStrLn $ Dot.encode $ G.toDot (Text.pack . show) id (Text.pack . show) (Text.pack . show) g
+p :: (Show w, Show el, Show n, Ord n) => Graph w el n -> IO ()
+p g = Text.putStrLn $ Dot.encode $ G.toDot (Text.pack . show) (Text.pack . show) (Text.pack . show) g
