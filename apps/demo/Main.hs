@@ -13,7 +13,7 @@ import AgentMoore
 import Control.Exception (assert)
 import Data.Function ((&))
 import Data.IORef
-import Graph (Graph, edge, addEdge, setEdgeLabel, setEdgeWeight)
+import Graph (Graph, addEdge)
 import Graph qualified as G
 import Machines
 import Data.Map (Map)
@@ -21,7 +21,6 @@ import Data.Map.Strict qualified as Map
 --import Data.Maybe (fromMaybe)
 --import Data.Set (Set)
 --import Data.Set qualified as Set
-import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Dot.Text qualified as Dot
@@ -33,7 +32,7 @@ main :: IO ()
 main = do
   let testSelfLoopsRemoved =
         let lhs = scanMealy 0 [Solved, Didn'tSolve] (graphToMealy simpleObserve extraSimpleTestGraph)
-            rhs = scanMealy 0 [Solved, Didn'tSolve] (graphToMealy simpleObserve (extraSimpleTestGraph & addEdge (edge 0 0) & addEdge (edge 1 1)))
+            rhs = scanMealy 0 [Solved, Didn'tSolve] (graphToMealy simpleObserve (extraSimpleTestGraph & addEdge 0 0 4 Understood & addEdge 1 1 4 Didn'tUnderstand))
         in assert (lhs == rhs) (pure ())
   testSelfLoopsRemoved
 
@@ -64,29 +63,29 @@ simpleObserve _ = \case
   Solved -> Understood
   Didn'tSolve -> Didn'tUnderstand
 
-type SimpleGraph = Graph Weight Text SimpleObservation ProblemId
+type SimpleGraph = Graph Weight SimpleObservation ProblemId
 
 extraSimpleTestGraph :: SimpleGraph
 extraSimpleTestGraph = G.empty
-  & addEdge (edge 0 1 & setEdgeLabel Understood       & setEdgeWeight 10)
-  & addEdge (edge 0 2 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 5)
+  & addEdge 0 1 10 Understood
+  & addEdge 0 2 5 Didn'tUnderstand
 
 simpleTestGraph :: SimpleGraph
 simpleTestGraph = extraSimpleTestGraph
-  & addEdge (edge 0 3 & setEdgeLabel Understood       & setEdgeWeight 8)
-  & addEdge (edge 0 4 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 3)
-  & addEdge (edge 1 2 & setEdgeLabel Understood       & setEdgeWeight 10)
-  & addEdge (edge 1 3 & setEdgeLabel Understood       & setEdgeWeight 3)
-  & addEdge (edge 2 0 & setEdgeLabel Understood       & setEdgeWeight 9)
-  & addEdge (edge 2 1 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 7)
-  & addEdge (edge 3 2 & setEdgeLabel Understood       & setEdgeWeight 6)
-  & addEdge (edge 3 4 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 5)
-  & addEdge (edge 4 2 & setEdgeLabel Didn'tUnderstand & setEdgeWeight 6)
-  & addEdge (edge 4 0 & setEdgeLabel Understood       & setEdgeWeight 2)
+  & addEdge 0 3 8 Understood
+  & addEdge 0 4 3 Didn'tUnderstand
+  & addEdge 1 2 10 Understood
+  & addEdge 1 3 3 Understood
+  & addEdge 2 0 9 Understood
+  & addEdge 2 1 7 Didn'tUnderstand
+  & addEdge 3 2 6 Understood
+  & addEdge 3 4 5 Didn'tUnderstand
+  & addEdge 4 2 6 Didn'tUnderstand
+  & addEdge 4 0 2 Understood
 
--------------------------------------------------
---                                             --
--------------------------------------------------
+---------------------------------------------------------
+-- More complex logic, not just a binary decision tree --
+---------------------------------------------------------
 
 type History = Map ProblemType [ProblemStats]
 
@@ -191,7 +190,7 @@ observe i0 n0
              | otherwise                                -> NeedsMoreContext
       | otherwise = NeedsMoreContext
 
-type DemoGraph = Graph Weight Text Observation Node
+type DemoGraph = Graph Weight Observation Node
 
 demoInputs :: [Input]
 demoInputs =
@@ -223,18 +222,18 @@ demoInputs =
 
 demoGraph :: DemoGraph
 demoGraph = G.empty
-  & addEdge (edge node0 node1 & setEdgeLabel NeedsMoreContext                    & setEdgeWeight 10)
-  & addEdge (edge node0 node2 & setEdgeLabel GoodGraspOnSubjectNeedsMorePractice & setEdgeWeight 10)
-  & addEdge (edge node0 node4 & setEdgeLabel NeedsDifferentProblemType           & setEdgeWeight 10)
-  & addEdge (edge node0 node3 & setEdgeLabel GreatGraspOnSubjectCanMoveOn        & setEdgeWeight 5)
-  & addEdge (edge node1 node0 & setEdgeLabel NeedsDifferentProblemType           & setEdgeWeight 6)
-  & addEdge (edge node1 node2 & setEdgeLabel NeedsMoreContext                    & setEdgeWeight 7)
-  & addEdge (edge node1 node3 & setEdgeLabel GoodGraspOnSubjectNeedsMorePractice & setEdgeWeight 6)
-  & addEdge (edge node1 node4 & setEdgeLabel GreatGraspOnSubjectCanMoveOn        & setEdgeWeight 3)
-  & addEdge (edge node2 node1 & setEdgeLabel GoodGraspOnSubjectNeedsMorePractice & setEdgeWeight 6)
-  & addEdge (edge node3 node2 & setEdgeLabel NeedsMoreContext                    & setEdgeWeight 13)
-  & addEdge (edge node3 node4 & setEdgeLabel GreatGraspOnSubjectCanMoveOn        & setEdgeWeight 9)
-  & addEdge (edge node4 node0 & setEdgeLabel GreatGraspOnSubjectCanMoveOn        & setEdgeWeight 3)
+  & addEdge node0 node1 10 NeedsMoreContext
+  & addEdge node0 node2 10 GoodGraspOnSubjectNeedsMorePractice
+  & addEdge node0 node4 10 NeedsDifferentProblemType
+  & addEdge node0 node3 5 GreatGraspOnSubjectCanMoveOn
+  & addEdge node1 node0 6 NeedsDifferentProblemType
+  & addEdge node1 node2 7 NeedsMoreContext
+  & addEdge node1 node3 6 GoodGraspOnSubjectNeedsMorePractice
+  & addEdge node1 node4 3 GreatGraspOnSubjectCanMoveOn
+  & addEdge node2 node1 6 GoodGraspOnSubjectNeedsMorePractice
+  & addEdge node3 node2 13 NeedsMoreContext
+  & addEdge node3 node4 9 GreatGraspOnSubjectCanMoveOn
+  & addEdge node4 node0 3 GreatGraspOnSubjectCanMoveOn
 
 node0 :: Node
 node0 = Node 0 VisualProblem
@@ -251,5 +250,5 @@ node3 = Node 3 VisualProblem
 node4 :: Node
 node4 = Node 4 WordProblem
 
-p :: (Show w, Show el, Show n, Ord n) => Graph w Text el n -> IO ()
-p g = Text.putStrLn $ Dot.encode $ G.toDot (Text.pack . show) id (Text.pack . show) (Text.pack . show) g
+p :: (Show w, Show el, Show n, Ord n) => Graph w el n -> IO ()
+p g = Text.putStrLn $ Dot.encode $ G.toDot (Text.pack . show) (Text.pack . show) (Text.pack . show) g

@@ -15,16 +15,9 @@
 module Graph
   ( Graph
 
-  , EdgeBuilder
-  , vertex
-  , edge
-  , setNodeLabel
-  , setEdgeLabel
-  , setEdgeWeight
-
   , empty
+  , addVertex
   , addEdge
-  , addEdges
   , removeVertex
 
   , numVertices
@@ -45,165 +38,102 @@ module Graph
   , mapVertices
 
   , toDot
-
-  , test
   )
   where
 
 import Data.Foldable qualified as F
 import Data.Graph qualified as Containers
-import Data.Bifunctor (first)
-import Data.Function ((&))
+import Data.Functor.Const (Const(..))
 import Data.List qualified as List
-import Data.Maybe (catMaybes, mapMaybe)
+import Data.Maybe (catMaybes)
 import Data.Foldable (foldMap')
 import Data.Map (Map)
-import Data.Monoid (Sum(..))
+import Data.Monoid (Sum(..), Endo (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
-import Data.Text qualified as Text
-import Data.Text.IO qualified as Text
-import Dot.Text qualified as Dot
 import Dot.Types qualified as Dot
 import GHC.Stack (HasCallStack)
 
-data Labeled label a = Labeled
-  { label :: Maybe label
-  , value :: a
-  }
-  deriving stock (Functor)
-
-instance (Eq a) => Eq (Labeled label a) where
-  (==) :: Eq a => Labeled label a -> Labeled label a -> Bool
-  l1 == l2 = l1.value == l2.value
-
-instance (Ord a) => Ord (Labeled label a) where
-  (<=) :: Ord a => Labeled label a -> Labeled label a -> Bool
-  l1 <= l2 = l1.value <= l2.value
-
-newtype Graph weight nodeLabel edgeLabel node = Graph
-  { getGraph :: Map (Labeled nodeLabel node) (Map (Labeled edgeLabel node) (Maybe weight))
+newtype Graph weight edgeLabel node = Graph
+  { getGraph :: Map node (Map node (weight, edgeLabel))
   }
 
-data EdgeBuilder weight nodeLabel edgeLabel node = EdgeBuilder
-  { node :: node
-  , nodeLabel :: Maybe nodeLabel
-  , edgeNode :: Maybe node
-  , edgeLabel :: Maybe edgeLabel
-  , edgeWeight :: Maybe weight
-  }
-
-vertex :: ()
-  => node
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-vertex n = EdgeBuilder
-  { node = n
-  , nodeLabel = Nothing
-  , edgeNode = Nothing
-  , edgeLabel = Nothing
-  , edgeWeight = Nothing
-  }
-
-edge :: ()
-  => node
-  -> node
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-edge n1 n2 = (vertex n1) { edgeNode = Just n2 }
-
-setNodeLabel :: ()
-  => nodeLabel
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-setNodeLabel nl e = e { nodeLabel = Just nl }
-
-setEdgeLabel :: ()
-  => edgeLabel
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-setEdgeLabel el e = e { edgeLabel = Just el }
-
-setEdgeWeight :: ()
-  => weight
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-  -> EdgeBuilder weight nodeLabel edgeLabel node
-setEdgeWeight w e = e { edgeWeight = Just w }
-
-empty :: Graph weight nodeLabel edgeLabel node
+empty :: Graph weight edgeLabel node
 empty = Graph Map.empty
 
-addEdge :: (Ord node)
-  => EdgeBuilder weight nodeLabel edgeLabel node
-  -> Graph       weight nodeLabel edgeLabel node
-  -> Graph       weight nodeLabel edgeLabel node
-addEdge b (Graph g) =
-  Graph (Map.insertWith Map.union (Labeled b.nodeLabel b.node) es g)
-  where
-    es = case b.edgeNode of
-      Nothing -> Map.empty
-      Just e -> Map.singleton (Labeled b.edgeLabel e) b.edgeWeight
+addVertex :: (Ord node)
+  => node
+  -> Graph weight edgeLabel node
+  -> Graph weight edgeLabel node
+addVertex n (Graph g) =
+  Graph (Map.insertWith Map.union n Map.empty g)
 
-addEdges :: (Ord node, Ord weight)
-  => [EdgeBuilder weight nodeLabel edgeLabel node]
-  -> Graph        weight nodeLabel edgeLabel node
-  -> Graph        weight nodeLabel edgeLabel node
-addEdges es g = foldr addEdge g es
+addEdge :: (Ord node)
+  => node
+  -> node
+  -> weight
+  -> edgeLabel
+  -> Graph weight edgeLabel node
+  -> Graph weight edgeLabel node
+addEdge n1 n2 w el (Graph g) =
+  Graph (Map.insertWith Map.union n1 (Map.singleton n2 (w, el)) g)
 
 numVertices :: ()
-  => Graph weight nodeLabel edgeLabel node
+  => Graph weight edgeLabel node
   -> Word
 numVertices = i2w . Map.size . getGraph
 
 numEdges :: ()
-  => Graph weight nodeLabel edgeLabel node
+  => Graph weight edgeLabel node
   -> Word
 numEdges = i2w . getSum . foldMap' (Sum . Map.size) . getGraph
 
 hasVertex :: (Ord node)
-  => Graph weight nodeLabel edgeLabel node
+  => Graph weight edgeLabel node
   -> node
   -> Bool
-hasVertex (Graph g) n = Map.member (peeking n) g
+hasVertex (Graph g) n = Map.member n g
 
 hasEdge :: (Ord node)
-  => Graph weight nodeLabel edgeLabel node
+  => Graph weight edgeLabel node
   -> node
   -> node
   -> Bool
 hasEdge (Graph g) n1 n2 =
-  case Map.lookup (peeking n1) g of
+  case Map.lookup n1 g of
     Nothing -> False
-    Just es -> Map.member (peeking n2) es
+    Just es -> Map.member n2 es
 
 neighbors :: (Ord node)
-  => Graph weight nodeLabel edgeLabel node
+  => Graph weight edgeLabel node
   -> node
-  -> [(node, Maybe weight, Maybe edgeLabel)]
+  -> [(node, weight, edgeLabel)]
 neighbors (Graph g) n =
-  List.map (\(e, weight) -> (e.value, weight, e.label))
+  List.map (\(e, (weight, label)) -> (e, weight, label))
   $ Map.toList
-  $ Map.findWithDefault Map.empty (peeking n) g
+  $ Map.findWithDefault Map.empty n g
 
 vertices :: ()
-  => Graph weight nodeLabel edgeLabel node
-  -> [(node, Maybe nodeLabel)]
-vertices = List.map (\l -> (l.value, l.label)) . Map.keys . getGraph
+  => Graph weight edgeLabel node
+  -> [node]
+vertices = Map.keys . getGraph
 
 edges :: ()
-  => Graph weight nodeLabel edgeLabel node
-  -> [(node, node, Maybe nodeLabel, Maybe edgeLabel, Maybe weight)]
+  => Graph weight edgeLabel node
+  -> [(node, node, weight, edgeLabel)]
 edges =
-  List.map (\(src, (tgt, w)) -> (src.value, tgt.value, src.label, tgt.label, w))
+  List.map (\(src, (tgt, (w, el))) -> (src, tgt, w, el))
   . List.concatMap (\(src, tgts) -> (src,) <$> tgts)
   . Map.toList
   . Map.map Map.toList
   . getGraph
 
 toList :: ()
-  => Graph weight nodeLabel edgeLabel node
-  -> [(node, Maybe nodeLabel, [(node, Maybe edgeLabel, Maybe weight)])]
+  => Graph weight edgeLabel node
+  -> [(node, [(node, weight, edgeLabel)])]
 toList =
   id
-  . List.map (\(n, es) -> (n.value, n.label, List.map (\(e, w) -> (e.value, e.label, w)) es))
+  . List.map (\(n, es) -> (n, List.map (\(e, (w, el)) -> (e, w, el)) es))
   . Map.toList
   . Map.map Map.toList
   . getGraph 
@@ -211,32 +141,32 @@ toList =
 mapVertices
   :: (Ord node, Ord node')
   => (node -> node') -- ^ Must be a bijection!
-  -> Graph weight nodeLabel edgeLabel node
-  -> Graph weight nodeLabel edgeLabel node'
-mapVertices f = Graph . Map.map (Map.mapKeys (fmap f)) . Map.mapKeys (fmap f) . getGraph
+  -> Graph weight edgeLabel node
+  -> Graph weight edgeLabel node'
+mapVertices f = Graph . Map.map (Map.mapKeys f) . Map.mapKeys f . getGraph
 
 removeVertex :: (Ord node)
   => node
-  -> Graph weight nodeLabel edgeLabel node
-  -> Graph weight nodeLabel edgeLabel node
-removeVertex n = Graph . fmap (Map.delete (peeking n)) . Map.delete (peeking n) . getGraph
+  -> Graph weight edgeLabel node
+  -> Graph weight edgeLabel node
+removeVertex n = Graph . fmap (Map.delete n) . Map.delete n . getGraph
 
-sccGraph :: forall weight nodeLabel edgeLabel node. (Ord node)
-  => Graph weight nodeLabel edgeLabel node
+sccGraph :: forall weight edgeLabel node. (Ord node)
+  => Graph weight edgeLabel node
   -> Map node Word
 sccGraph graph = Map.fromList (concatMap (\(i, ns) -> List.map (, i) ns) (List.zip [0..] scc))
   where
     scc :: [[node]]
     scc = sccListGraph graph
   
-sccListGraph :: forall weight nodeLabel edgeLabel node. (Ord node, HasCallStack)
-  => Graph weight nodeLabel edgeLabel node
+sccListGraph :: forall weight edgeLabel node. (Ord node, HasCallStack)
+  => Graph weight edgeLabel node
   -> [[node]]
 sccListGraph (Graph graph) =
   map (map (intToVertices Map.!) . F.toList)
   $ Containers.scc
   $ Containers.buildG bounds
-  $ concatMap (\(i, js) -> List.map (\(j, _) -> (i.value, j.value)) (Map.toList js))
+  $ concatMap (\(i, js) -> List.map (\(j, _) -> (i, j)) (Map.toList js))
   $ Map.toList
   $ getGraph
   $ mapVertices (verticesToInt Map.!) (Graph graph)
@@ -246,93 +176,48 @@ sccListGraph (Graph graph) =
 
     verticesToInt :: Map node Int
     verticesToInt =
-      Map.fromList $ zipWith (\(n, _) i -> (n.value, i)) (Map.toAscList graph) [0..]
+      Map.fromList $ zipWith (\(n, _) i -> (n, i)) (Map.toAscList graph) [0..]
 
     intToVertices :: Map Int node
     intToVertices =
-      Map.fromList $ zipWith (\i (n, _) -> (i, n.value)) [0..] (Map.toAscList graph)
+      Map.fromList $ zipWith (\i (n, _) -> (i, n)) [0..] (Map.toAscList graph)
 
 selfLoops :: (Ord node)
-  => Graph weight nodeLabel edgeLabel node
+  => Graph weight edgeLabel node
   -> [node]
 selfLoops =
-  mapMaybe (\(n1, n2, _, _, _) -> if n1 == n2 then Just n1 else Nothing)
-  . edges
+  ($ [])
+  . appEndo
+  . getConst
+  . Map.traverseWithKey (\n es -> if n `Map.member` es then Const (Endo (n :)) else mempty)
+  . getGraph
 
-removeSelfLoops :: (Ord node, Ord weight)
-  => Graph weight nodeLabel edgeLabel node
-  -> Graph weight nodeLabel edgeLabel node
-removeSelfLoops g =
-  addEdges
-    (List.map
-      (\(n1, n2, nl, el, w) -> (edge n1 n2)
-          { nodeLabel = nl
-          , edgeLabel = el
-          , edgeWeight = w
-          }
-      )
-      (List.filter (\(s,t,_,_,_) -> s /= t) (edges g))
-    )
-    (addEdges (List.map (\(n, nl) -> (vertex n) { nodeLabel = nl }) (vertices g)) empty)
+removeSelfLoops :: forall weight edgeLabel node. (Ord node, Ord weight)
+  => Graph weight edgeLabel node
+  -> Graph weight edgeLabel node
+removeSelfLoops (Graph g) = Graph $ Map.mapWithKey (\n es -> Map.delete n es) g
 
-testGraph :: Graph () Text Text Int
-testGraph = empty
-  & addEdge (edge 0 1 & setNodeLabel "A" & setEdgeLabel "01")
-  & addEdge (edge 1 1 & setNodeLabel "B" & setEdgeLabel "11")
-  & addEdge (edge 1 2 & setNodeLabel "C" & setEdgeLabel "12")
-  & addEdge (edge 2 3 & setNodeLabel "D" & setEdgeLabel "23")
-  & addEdge (edge 3 5 & setNodeLabel "E" & setEdgeLabel "35")
-  & addEdge (edge 5 2 & setNodeLabel "F" & setEdgeLabel "52")
-  & addEdge (edge 5 5 & setNodeLabel "G" & setEdgeLabel "55")
-
-test :: IO ()
-test = do
-  let tshow :: (Show a) => a -> Text
-      tshow = Text.pack . show
-
-  let p :: (Ord node, Show weight, Show node)
-        => Graph weight Text Text node
-        -> IO ()
-      p g = Text.putStrLn $ Dot.encode $ toDot tshow id id tshow g
-
-  p testGraph
-  p $ removeSelfLoops testGraph
-
-toDot :: forall weight nodeLabel edgeLabel node. (Ord node)
+toDot :: forall weight edgeLabel node. (Ord node)
   => (weight -> Text)
-  -> (nodeLabel -> Text)
   -> (edgeLabel -> Text)
   -> (node -> Text)
-  -> Graph weight nodeLabel edgeLabel node
+  -> Graph weight edgeLabel node
   -> Dot.DotGraph
-toDot w2t nl2t el2t n2t g =
-  Dot.DotGraph Dot.Strict Dot.Directed (Just "weighted")
-    (nodeLabels ++ es)
+toDot w2t el2t n2t g =
+  Dot.DotGraph Dot.Strict Dot.Directed (Just "weighted") (List.map mkEdge (edges g))
   where
-    -- This is a little convoluted, but to make all the node labels come first,
-    -- we accumulate them separately, then prepend them to the actual structure
-    -- of the graph.
-    (nodeLabels, es) = first List.concat $ List.unzip $ List.map mkEdge (edges g)
-
-    mkEdge :: (node, node, Maybe nodeLabel, Maybe edgeLabel, Maybe weight) -> ([Dot.Statement], Dot.Statement)
-    mkEdge (n1, n2, mNodeLabel, mEdgeLabel, mWeight) =
+    mkEdge :: (node, node, weight, edgeLabel) -> Dot.Statement
+    mkEdge (n1, n2, mWeight, mEdgeLabel) =
       let
         src = txtToNodeId $ n2t n1
         dst = txtToNodeId $ n2t n2
-        srcLabelAttr = Dot.Attribute "label" . Dot.Id . nl2t <$> mNodeLabel
-        edgeLabelAttr = Dot.Attribute "label" . Dot.Id . el2t <$> mEdgeLabel
-        weightAttr = Dot.Attribute "weight" . Dot.Id . w2t <$> mWeight
+        edgeLabelAttr = Dot.Attribute "label" . Dot.Id . el2t $ mEdgeLabel
+        weightAttr = Dot.Attribute "weight" . Dot.Id . w2t $ mWeight
       in
-      (
-        catMaybes
-          [ Dot.StatementNode . Dot.NodeStatement src . List.singleton <$> srcLabelAttr
-          ]
-      ,
-        Dot.StatementEdge
+      Dot.StatementEdge
           $ Dot.EdgeStatement
               (Dot.ListTwo (Dot.EdgeNode src) (Dot.EdgeNode dst) [])
-              (catMaybes [edgeLabelAttr, weightAttr])
-      )
+              [edgeLabelAttr, weightAttr]
 
     txtToNodeId :: Text -> Dot.NodeId
     txtToNodeId t = Dot.NodeId (Dot.Id t) Nothing
@@ -343,9 +228,3 @@ toDot w2t nl2t el2t n2t g =
 
 i2w :: Int -> Word
 i2w = fromIntegral
-
--- Pass this to a lookup of a labeled value in a Map/Set.
--- the Eq and Ord instances for Labeled don't compare the label.
-peeking :: node -> Labeled label node
-peeking = Labeled Nothing
-

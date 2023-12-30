@@ -30,18 +30,15 @@ import Data.List.NonEmpty qualified as NE
 --   This takes an observation function which operates on the current node and some input.
 --   The edge labels between nodes are observations.
 --   (Weighted) Observations determine transitions.
-graphToMealy :: forall i o weight nodeLabel node. (Ord node, Ord weight, Eq o)
+graphToMealy :: forall i o weight node. (Ord node, Ord weight, Eq o)
   => (node -> i -> o)
-  -> Graph weight nodeLabel o node -- edge labels are observations
+  -> Graph weight o node -- edge labels are observations
   -> Mealy node i (Maybe o)
 graphToMealy observe (G.removeSelfLoops -> g) =
   let
     -- all edges
     vs :: Map node [(node, weight, o)]
-    vs = Map.fromList
-      $ List.map (\(n, es) -> (n, List.map (\(eNode, el, w) -> (eNode, fromJust "weight" w, fromJust "edge label" el)) es))
-      $ List.map (\(n, _, es) -> (n, es))
-      $ G.toList g
+    vs = Map.fromList $ G.toList g
   in
   Mealy $ \currentNode input -> 
     let
@@ -62,8 +59,3 @@ graphToMealy observe (G.removeSelfLoops -> g) =
       Nothing -> (Nothing, currentNode)
       -- we make an observation here.
       Just ((target, _, _) :| _) -> (Just observation, target)
-
-fromJust :: String -> Maybe a -> a
-fromJust err = \case 
-  Nothing -> error err
-  Just a -> a
