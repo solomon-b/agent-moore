@@ -46,6 +46,7 @@ library
     Machines.Mealy
     Machines.MealyM
     Machines.Moore
+    Machines.MooreM
 
   build-depends:
     containers,
