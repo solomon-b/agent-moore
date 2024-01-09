@@ -45,11 +45,11 @@ library
     Machines
     Machines.Mealy
     Machines.Moore
-    Machines.MooreM
 
   build-depends:
     containers,
     dot,
+    bifunctors,
     profunctors,
     monoidal-functors >= 0.2.3.0,
     mtl,
