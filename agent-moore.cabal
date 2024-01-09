@@ -44,7 +44,6 @@ library
     Graph
     Machines
     Machines.Mealy
-    Machines.MealyM
     Machines.Moore
     Machines.MooreM
 
