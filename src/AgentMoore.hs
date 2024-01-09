@@ -4,7 +4,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module AgentMoore
@@ -21,7 +20,7 @@ import Data.Map.Strict qualified as Map
 import Graph (Graph)
 import Graph qualified as G
 import Data.Ord (Down(..))
-import Machines (Mealy(..))
+import Machines (Mealy, MealyM (..))
 import Data.List.NonEmpty (NonEmpty(..))
 import Data.List.NonEmpty qualified as NE
 
@@ -40,7 +39,7 @@ graphToMealy observe (G.removeSelfLoops -> g) =
     vs :: Map node [(node, weight, o)]
     vs = Map.fromList $ G.toList g
   in
-  Mealy $ \currentNode input -> 
+  MealyM $ \currentNode input -> 
     let
       -- make the observation
       observation :: o
@@ -56,6 +55,6 @@ graphToMealy observe (G.removeSelfLoops -> g) =
     in
     case choiceEdges of
       -- terminal node. maybe this should be an error case?
-      Nothing -> (Nothing, currentNode)
+      Nothing -> pure (Nothing, currentNode)
       -- we make an observation here.
-      Just ((target, _, _) :| _) -> (Just observation, target)
+      Just ((target, _, _) :| _) -> pure (Just observation, target)

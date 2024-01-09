@@ -1,7 +1,7 @@
 module Machines
   ( module M,
     Fix (..),
-    annihilate,
+    -- annihilate,
     loop,
   )
 where
@@ -20,13 +20,13 @@ newtype Fix f = Fix {unFix :: f (Fix f)}
 -- with a By^A Moore Machine. Its the universal thing that can be put
 -- together with a By^A Moore Machine. They're not just two different
 -- definitions, they are dual in certain sense." -- David Spivak
-annihilate :: Moore' i o -> Mealy' o i -> Fix Identity
-annihilate (Moore' moore) (Mealy' mealy) =
-  Fix $ do
-    let (o, transition) = moore
-        (i, mealy') = mealy o
-        moore' = transition i
-    pure $ annihilate moore' mealy'
+-- annihilate :: Moore' i o -> Mealy' o i -> Fix Identity
+-- annihilate (Moore' moore) (MealyM' mealy) =
+--   Fix $ do
+--     let (o, transition) = moore
+--         (i, mealy') = mealy o
+--         moore' = transition i
+--     pure $ annihilate moore' mealy'
 
 -- | Recursively unfold fixed point @Fix m@.
 loop :: (Monad f) => Fix f -> f x

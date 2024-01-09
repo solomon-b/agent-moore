@@ -44,6 +44,7 @@ library
     Graph
     Machines
     Machines.Mealy
+    Machines.MealyM
     Machines.Moore
 
   build-depends:
