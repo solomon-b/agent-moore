@@ -15,7 +15,7 @@ import Data.Function ((&))
 import Data.IORef
 import Graph (Graph, addEdge)
 import Graph qualified as G
-import Machines
+import Machines.Mealy
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
 --import Data.Maybe (fromMaybe)
