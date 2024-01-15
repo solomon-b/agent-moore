@@ -1,30 +1,28 @@
 {-# language
     BangPatterns
+  , FlexibleContexts
   , MultiWayIf
   , OverloadedRecordDot
   , OverloadedStrings
+  , ScopedTypeVariables
 #-}
 
 module Main where
 
 --------------------------------------------------------------------------------
 
-import AgentMoore
+import AgentMoore (graphToMealy)
 import Control.Exception (assert)
 import Data.Function ((&))
-import Data.IORef
 import Graph (Graph, addEdge)
 import Graph qualified as G
-import Machines.Mealy
+import Machines.Mealy (scanMealy, scanMealyM)
 import Data.Map (Map)
 import Data.Map.Strict qualified as Map
---import Data.Maybe (fromMaybe)
---import Data.Set (Set)
---import Data.Set qualified as Set
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text
 import Dot.Text qualified as Dot
-import System.IO.Unsafe (unsafePerformIO)
+import Control.Monad.State (MonadState, modify, get, evalState)
 
 --------------------------------------------------------------------------------
 
@@ -43,7 +41,8 @@ main = do
   print $ scanMealy 0 [Didn'tSolve, Solved, Solved, Solved, Didn'tSolve] $ graphToMealy simpleObserve simpleTestGraph
 
   Text.putStrLn "\ndemoGraph:" >> p demoGraph
-  print $ scanMealy node0 demoInputs $ graphToMealy (flip observe) demoGraph
+  let path = flip evalState Map.empty $ scanMealyM node0 demoInputs $ graphToMealy observe demoGraph
+  print path
 
 type ProblemId = Word
 type Weight = Word
@@ -58,10 +57,10 @@ data SimpleInput = Solved | Didn'tSolve
 data SimpleObservation = Understood | Didn'tUnderstand
   deriving stock (Eq, Show)
 
-simpleObserve :: ProblemId -> SimpleInput -> SimpleObservation
+simpleObserve :: Monad m => ProblemId -> SimpleInput -> m SimpleObservation
 simpleObserve _ = \case 
-  Solved -> Understood
-  Didn'tSolve -> Didn'tUnderstand
+  Solved -> pure Understood
+  Didn'tSolve -> pure Didn'tUnderstand
 
 type SimpleGraph = Graph Weight SimpleObservation ProblemId
 
@@ -89,10 +88,6 @@ simpleTestGraph = extraSimpleTestGraph
 
 type History = Map ProblemType [ProblemStats]
 
-history :: IORef History
-history = unsafePerformIO $ newIORef Map.empty
-{-# noinline history #-}
-
 data ProblemStats = ProblemStats
   { numAttempts :: Word
     -- ^ Number of attempts on the problem
@@ -113,27 +108,20 @@ data Input = Input
   -- , history :: Map ProblemType ProblemStats
   }
 
-accessHistory :: (History -> x) -> x
-accessHistory f = unsafePerformIO $ do
-  h <- readIORef history
-  pure $ f h
-{-# noinline accessHistory #-}
+modifyHistory :: MonadState History m => ProblemType -> ProblemStats -> m ()
+modifyHistory ptype pstats = do
+  modify $ \m -> Map.insertWith (++) ptype [pstats] m
 
-modifyHistory :: ProblemType -> ProblemStats -> a -> a
-modifyHistory ptype pstats x = unsafePerformIO $ do
-  modifyIORef' history $ \m -> Map.insertWith (++) ptype [pstats] m
-  pure $! x
-{-# noinline modifyHistory #-}
+historyNumAttempts :: MonadState History m => ProblemType -> m Word
+historyNumAttempts ptype = do
+  history <- get
+  pure $ sum $ map numAttempts $ Map.findWithDefault [] ptype history
 
-historyNumAttempts :: ProblemType -> Word
-historyNumAttempts ptype = accessHistory $ \h -> case Map.lookup ptype h of
-  Nothing -> 0
-  Just ps -> sum (map numAttempts ps)
-
-historyAvgNumAttempts :: ProblemType -> Word
-historyAvgNumAttempts ptype = accessHistory $ \h -> case Map.lookup ptype h of
-  Nothing -> 0
-  Just ps -> sum (map numAttempts ps) `div` (fromIntegral $ length ps)
+historyAvgNumAttempts :: MonadState History m => ProblemType -> m Word
+historyAvgNumAttempts ptype = do
+  history <- get
+  let ps = Map.findWithDefault [] ptype history
+  pure $ sum (map numAttempts ps) `div` (fromIntegral (length ps))
 
 data Observation
   = NeedsMoreContext
@@ -167,28 +155,34 @@ data Node = Node
 instance Show Node where
   show n = show n.problemId ++ subscriptProblemType n.problemType
 
-observe :: Input -> Node -> Observation
-observe i0 n0
-  | i0.stats.solved = modifyHistory n0.problemType i0.stats $ observeSolved i0 n0
-  | otherwise = modifyHistory n0.problemType i0.stats $ observeUnsolved i0 n0
+observe :: forall m. MonadState History m => Node -> Input -> m Observation
+observe n0 i0 = do
+  modifyHistory n0.problemType i0.stats
+  if i0.stats.solved
+  then observeSolved n0 i0
+  else observeUnsolved n0 i0
   where
-    observeSolved :: Input -> Node -> Observation
-    observeSolved i n
-      | i.stats.numAttempts >= 3 =
-          if | historyAvgNumAttempts n.problemType >= 3 -> NeedsDifferentProblemType
-             | historyAvgNumAttempts n.problemType >= 2 -> NeedsMoreContext
-             | otherwise                                -> GoodGraspOnSubjectNeedsMorePractice
-      | i.stats.numQuestionsAsked >= 10 = NeedsMoreContext
-      | i.stats.timeSpent >= 60 * 10 = NeedsMoreContext
-      | i.stats.timeSpent >= 60 * 5  = GoodGraspOnSubjectNeedsMorePractice
-      | otherwise = GreatGraspOnSubjectCanMoveOn
+    observeSolved :: Node -> Input -> m Observation
+    observeSolved n i
+      | i.stats.numAttempts >= 3 = do
+          avgNumAttempts <- historyAvgNumAttempts n.problemType
+          pure $
+            if | avgNumAttempts >= 3 -> NeedsDifferentProblemType
+               | avgNumAttempts >= 2 -> NeedsMoreContext
+               | otherwise           -> GoodGraspOnSubjectNeedsMorePractice
+      | i.stats.numQuestionsAsked >= 10 = pure NeedsMoreContext
+      | i.stats.timeSpent >= 60 * 10 = pure NeedsMoreContext
+      | i.stats.timeSpent >= 60 * 5  = pure GoodGraspOnSubjectNeedsMorePractice
+      | otherwise = pure GreatGraspOnSubjectCanMoveOn
 
-    observeUnsolved :: Input -> Node -> Observation
-    observeUnsolved i n
-      | i.stats.numAttempts >= 2 =
-          if | historyAvgNumAttempts n.problemType >= 2 -> NeedsDifferentProblemType
-             | otherwise                                -> NeedsMoreContext
-      | otherwise = NeedsMoreContext
+    observeUnsolved :: Node -> Input -> m Observation
+    observeUnsolved n i
+      | i.stats.numAttempts >= 2 = do
+          avgNumAttempts <- historyAvgNumAttempts n.problemType
+          pure $
+            if | avgNumAttempts >= 2 -> NeedsDifferentProblemType
+               | otherwise           -> NeedsMoreContext
+      | otherwise = pure NeedsMoreContext
 
 type DemoGraph = Graph Weight Observation Node
 

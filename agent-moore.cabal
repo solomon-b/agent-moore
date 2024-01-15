@@ -72,6 +72,7 @@ executable demo
     agent-moore,
     containers,
     dot,
+    mtl,
     text
 
   hs-source-dirs:   apps/demo
