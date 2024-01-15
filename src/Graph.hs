@@ -45,7 +45,6 @@ import Data.Foldable qualified as F
 import Data.Graph qualified as Containers
 import Data.Functor.Const (Const(..))
 import Data.List qualified as List
-import Data.Maybe (catMaybes)
 import Data.Foldable (foldMap')
 import Data.Map (Map)
 import Data.Monoid (Sum(..), Endo (..))
