@@ -45,11 +45,16 @@ library
     Machines
     Machines.Mealy
     Machines.Moore
+    OpenAI
 
   build-depends:
     containers,
     dot,
     bifunctors,
+    bytestring,
+    http-client,
+    http-client-tls,
+    http-types,
     profunctors,
     monoidal-functors >= 0.2.3.0,
     mtl,
