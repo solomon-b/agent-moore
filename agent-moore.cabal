@@ -48,7 +48,9 @@ library
     OpenAI
 
   build-depends:
+    aeson,
     containers,
+    deriving-aeson,
     dot,
     bifunctors,
     bytestring,
