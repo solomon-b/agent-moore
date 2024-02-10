@@ -42,15 +42,16 @@
         "nixpkgs": "nixpkgs"
       },
       "locked": {
-        "lastModified": 1706590388,
-        "narHash": "sha256-FhqRBmR2nWwbpv9G2KxXfkS0vXxpKGrm8XGBGKS9lwc=",
+        "lastModified": 1707538222,
+        "narHash": "sha256-/51BHfMl/N/xMKBR0lCU3tPtdmuw3yxIjRbrbotFjZg=",
         "owner": "solomon-b",
         "repo": "monoidal-functors",
-        "rev": "3a981663e19194c778beb654fdad373c1ab9016a",
+        "rev": "6a460799467815fdb86beb54a20610295070d4eb",
         "type": "github"
       },
       "original": {
         "owner": "solomon-b",
+        "ref": "solomon/removes-overlay",
         "repo": "monoidal-functors",
         "type": "github"
       }
