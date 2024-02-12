@@ -1,0 +1,6 @@
+packages: .
+
+source-repository-package
+  type: git
+  location: https://github.com/solomon-b/monoidal-functors.git
+  tag: 6a460799467815fdb86beb54a20610295070d4eb

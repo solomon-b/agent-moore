@@ -39,8 +39,7 @@ import Control.Category.Cartesian (split)
 import Control.Monad.Identity (Identity (..))
 import Data.Biapplicative
 import Data.Bifunctor.Monoidal qualified as Bifunctor
-import Data.Bifunctor.Monoidal.Specialized (mux)
-import Data.Functor.Monoidal qualified as Functor
+import Data.Bifunctor.Monoidal.Specialized (biapply)
 import Data.Profunctor (Closed (..), Costrong (..), Profunctor (..))
 import Data.Profunctor.Rep (Corep, Corepresentable (..))
 import Data.Profunctor.Sieve (Cosieve (..))
@@ -264,15 +263,3 @@ infixr 9 \/
 
 (\/) :: (Applicative m) => MooreM m s i o -> MooreM m t i' o' -> MooreM m (s, t) (Either i i') (o, o')
 (\/) m1 m2 = Trifunctor.combine @_ @(,) @Either @(,) (m1, m2)
-
---------------------------------------------------------------------------------
--- TODO: Move to monoidal functors:
-
-liftA2' :: (Functor m, Functor.Semigroupal (->) (,) (,) m) => (a -> b -> c) -> m a -> m b -> m c
-liftA2' f m1 m2 = uncurry f <$> Functor.combine (m1, m2)
-
-biliftA2' :: (Bifunctor m, Bifunctor.Semigroupal (->) (,) (,) (,) m) => (a -> b -> c) -> (d -> e -> f) -> m a d -> m b e -> m c f
-biliftA2' f g m1 m2 = bimap (uncurry f) (uncurry g) $ Bifunctor.combine (m1, m2)
-
-biapply :: (Bifunctor p, Bifunctor.Semigroupal (->) (,) (,) (,) p) => p (a -> b) (c -> d) -> p a c -> p b d
-biapply = fmap (bimap (uncurry ($)) (uncurry ($))) . mux
